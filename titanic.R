@@ -4,6 +4,7 @@ setwd("~/DSI/classes/fall2018/SYS6018/kaggle/sys6018-competition-titanic/")
 
 library(tidyverse)
 library(ggplot2)
+library(pROC)
 
 #------------------------------------------------------------------------------------
 # Read in data
@@ -95,23 +96,28 @@ d.all <- d.all %>%
          Cabodd = ifelse(is.na(Cabodd), -1, Cabodd),
          Age = ifelse(is.na(Age), mean_Age, Age),
          Fare = ifelse(is.na(Fare), mean_Fare, Fare),
+         Embarked = ifelse(is.na(Embarked), "S", Embarked),
          Farediv = Fare/Cabcnt) %>%
   select(-Ticket)
 
 d.all <- d.all %>%
   mutate_at(vars(Cabnum), funs(as.numeric)) %>%
-  mutate_at(vars(Pclass), funs(as.character))
+  mutate_at(vars(Pclass), funs(as.character)) %>%
+  mutate_at(vars(Pclass, Sex, Embarked, Deck), funs(as.factor))
 
 #------------------------------------------------------------------------------------
 # Modeling
 #------------------------------------------------------------------------------------
 
+# prevalence of outcome
 prev <- table(d.train_raw$Survived)[2]/sum(table(d.train_raw$Survived))
 
+# create test/train dfs
 d.train <- d.all[train_ind,]
 d.test <- d.all[base::setdiff(seq(1,nrow(d.all)), train_ind),]
-d.train$Survived <- Survived
+d.train$Survived <- as.factor(Survived)
 
+# GLM model
 model.lm <- glm(formula = Survived ~ ., family = "binomial", data = d.train)
 
 preds <- predict.glm(object = model.lm, newdata = d.test, type = "response")
@@ -119,9 +125,22 @@ threshold <- quantile(preds, probs = 1-prev)
 
 preds_bin <- ifelse(preds < threshold, 0, 1)
 
+# RF model
+model.rf <- randomForest::randomForest(
+  formula = Survived ~ .,
+  data = d.train,
+  ntree = 500,
+  mtry = 5)
+
+preds.rf <- predict(object = model.rf, newdata = d.test)
+
 #------------------------------------------------------------------------------------
-# Analyse Model
+# Submit predictions
 #------------------------------------------------------------------------------------
 
+d.sub <- d.test_raw[,"PassengerId"]
+d.sub$Survived <- preds_bin
+write_csv(x = d.sub, path = "data/submission1.csv")
 
-  
+d.sub$Survived <- preds.rf
+write_csv(x = d.sub, path = "data/submission2.csv")
